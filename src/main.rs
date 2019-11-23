@@ -1,33 +1,52 @@
-use std::{fs::File, io::IoSlice, os::unix::io::AsRawFd};
+fn stall_nop(count: usize, qdepth: u32) {
+    let mut writes = 0;
+    let mut reads = 0;
+    let mut counter = 0;
 
-unsafe fn write_chunk(iou: &mut iou::IoUring, fd: i32, data: &[IoSlice], offset: &mut usize) {
-    let mut sqe = iou.next_sqe().unwrap();
-    sqe.prep_write_vectored(fd, &data, *offset);
-    *offset += data.len();
-}
+    let mut iou = iou::IoUring::new(qdepth).unwrap();
 
-fn read_chunk(iou: &mut iou::IoUring) -> usize {
-    let cqe = iou.wait_for_cqe().unwrap();
-    cqe.result().unwrap()
+    println!("{:>3} {:>6} {:>6} {:>6}", "IDX", "OP", "READS", "WRITES");
+
+    while writes < count {
+        let op = match iou.next_sqe() {
+            Some(mut sqe) => {
+                unsafe {
+                    sqe.prep_nop();
+                }
+                writes += 1;
+                "WRITE"
+            }
+            None => {
+                let _ = iou.wait_for_cqe().unwrap();
+                reads += 1;
+                "READ"
+            }
+        };
+
+        counter += 1;
+        println!("{:>3} {:>6} {:>6} {:>6}", counter, op, reads, writes);
+    }
+
+    while reads < writes {
+        let _ = iou.wait_for_cqe().unwrap();
+        reads += 1;
+        counter += 1;
+        println!("{:>3} {:>6} {:>6} {:>6}", counter, "READ", reads, writes);
+    }
 }
 
 fn main() {
-    let mut iou = iou::IoUring::new(2).unwrap();
+    let qd: u32 = std::env::args()
+        .nth(1)
+        .unwrap_or("2".to_string())
+        .parse()
+        .unwrap();
 
-    let file = File::create("rust_testfile").unwrap();
-    let fd = file.as_raw_fd();
+    let count: usize = std::env::args()
+        .nth(2)
+        .unwrap_or("3".to_string())
+        .parse()
+        .unwrap();
 
-    let mut offset = 0;
-    let slice = [IoSlice::new(b"012345678\n")];
-    
-    for _ in 0..2 {
-        unsafe { write_chunk(&mut iou, fd, &slice, &mut offset); }
-    }
-
-    read_chunk(&mut iou);
-    unsafe { write_chunk(&mut iou, fd, &slice, &mut offset); }
-
-    while let Some(cqe) = iou.peek_for_cqe() {
-        println!("beep boop: {:?}", cqe.user_data());
-    }
+    stall_nop(count, qd);
 }
