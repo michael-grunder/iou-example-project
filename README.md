@@ -1,10 +1,5 @@
-Segmentation fault demonstration
-
+To run
 
 ```bash
-# Should replicate SIGSEGV
-git checkout master && cargo run
-
-# Using modified upstream
-git checkout sigsegv.peek-for-cqe && cargo run
+cargo run && cat rust_testfile
 ```
