@@ -1,33 +1,37 @@
+use iou::IoUring;
 use std::{fs::File, io::IoSlice, os::unix::io::AsRawFd};
 
-unsafe fn write_chunk(iou: &mut iou::IoUring, fd: i32, data: &[IoSlice], offset: &mut usize) {
-    let mut sqe = iou.next_sqe().unwrap();
-    sqe.prep_write_vectored(fd, &data, *offset);
-    *offset += data.len();
-}
-
-fn read_chunk(iou: &mut iou::IoUring) -> usize {
-    let cqe = iou.wait_for_cqe().unwrap();
-    cqe.result().unwrap()
-}
-
 fn main() {
-    let mut iou = iou::IoUring::new(2).unwrap();
+    let words = vec!["some\n".as_bytes().to_vec(), "data\n".as_bytes().to_vec()];
 
     let file = File::create("rust_testfile").unwrap();
     let fd = file.as_raw_fd();
-
+    let mut index = 0;
     let mut offset = 0;
-    let slice = [IoSlice::new(b"012345678\n")];
-    
-    for _ in 0..2 {
-        unsafe { write_chunk(&mut iou, fd, &slice, &mut offset); }
+
+    let mut iou = IoUring::new(32).expect("Can't create ring");
+
+    for word in words.into_iter() {
+        // How to keep around *both* the `word` vec and the boxed slice container?
+        let buf = Box::new([IoSlice::new(&word)]);
+        let len = word.len();
+
+        let mut sqe = iou.next_sqe().unwrap();
+        unsafe {
+            sqe.prep_write_vectored(fd, &*buf, offset);
+            sqe.set_user_data(index);
+        }
+
+        std::mem::forget(buf);
+        std::mem::forget(word);
+
+        offset += len;
+        index += 1;
     }
 
-    read_chunk(&mut iou);
-    unsafe { write_chunk(&mut iou, fd, &slice, &mut offset); }
-
-    while let Some(cqe) = iou.peek_for_cqe() {
-        println!("beep boop: {:?}", cqe.user_data());
+    while index > 0 {
+        let cqe = iou.wait_for_cqe().unwrap();
+        println!("Now I could free write id: {}", cqe.user_data());
+        index -= 1;
     }
 }
