@@ -1,4 +1,4 @@
-use iou::{IoUring, SubmissionFlags};
+use iou::IoUring;
 use std::{
     collections::HashMap,
     convert::TryInto,
@@ -175,13 +175,13 @@ fn iou_copy_lines(infile: &str, qd: u32) {
 fn main() {
     let args = std::env::args().collect::<Vec<_>>();
 
-    let qd = if args.len() > 2 {
+    let qd = if args.len() > 1 {
         args[1].parse().unwrap()
     } else {
         128
     };
 
-    let f1 = if args.len() > 3 {
+    let f1 = if args.len() > 2 {
         &args[2]
     } else {
         "10k.lines"
