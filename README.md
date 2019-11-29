@@ -1,5 +1,5 @@
 To run
 
 ```bash
-cargo run && cat rust_testfile
+cargo run && diff 10k.lines rust_testcopy
 ```
