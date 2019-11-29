@@ -15,6 +15,8 @@ struct IouMarker<'a> {
 }
 
 impl<'a> IouMarker<'a> {
+    // This also works but appears unneccessary since data_ref points to the
+    // heap allocations.
     fn pinned<T>(writes: T) -> Pin<Box<Self>>
     where
         T: Into<Vec<Vec<u8>>>,
