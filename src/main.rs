@@ -62,6 +62,29 @@ impl<'a> IouMarker<'a> {
         Box::pin(container)
     }
 
+    fn new2<T>(writes: T) -> Self
+    where
+        T: Into<Vec<Vec<u8>>>,
+    {
+        let writes = writes.into();
+        let mut byte_len = 0;
+
+        let iovecs: Vec<_> = writes
+            .iter()
+            .map(|b| {
+                let ptr = unsafe { &*(b.as_ref() as *const _) };
+                byte_len += b.len();
+                IoSlice::new(ptr)
+            })
+            .collect();
+
+        Self {
+            _data: writes,
+            byte_len,
+            iovecs,
+        }
+    }
+
     fn len(&self) -> usize {
         self.iovecs.len()
     }
@@ -179,21 +202,22 @@ fn copy(infile: &str, qd: u32) {
 
     let mut inflight = 0;
     let mut offset = 0;
+    let mut pauses = 0;
     let mut id = 0;
 
     for mut line in rdr.lines().filter_map(|l| l.ok()) {
         line.push('\n');
 
         if inflight == qd {
-            eprintln!("Pausing for {} inflight writes...", inflight);
             while inflight > 0 {
                 let cqe = iou.wait_for_cqe().unwrap();
                 map.remove(&cqe.user_data());
                 inflight -= 1;
+                pauses += 1;
             }
         }
 
-        let io = IouMarker::new(vec![line.into_bytes()]);
+        let io = IouMarker::new2(vec![line.into_bytes()]);
 
         let mut sqe = iou.next_sqe().unwrap();
         sqe.set_user_data(id);
@@ -205,31 +229,38 @@ fn copy(infile: &str, qd: u32) {
 
         map.insert(id, io);
         id += 1;
+
+        if id % 100000 == 0 {
+            eprintln!(
+                "[{}]: In-flight: {}, pauses: {}, offset: {}",
+                id, inflight, pauses, offset
+            );
+        }
     }
 
-    eprint!("Waiting for {} writes...", inflight);
+    eprint!("Waiting for final {} writes...", inflight);
     let _ = iou.wait_for_cqes(inflight.try_into().unwrap());
     eprintln!("done!");
 }
 
 fn main() {
-    let v: Vec<u8> = vec![1, 2, 3];
-    let iom = IoMarker::new(v);
+    //let v: Vec<u8> = vec![1, 2, 3];
+    //let iom = IoMarker::new(v);
 
-    println!("{:p}, {:p}", &iom._data, &iom.iovec[0]);
+    //println!("{:p}, {:p}", &iom._data, &iom.iovec[0]);
 
-    let ioum = IouMarker::new(vec![vec![1, 2, 3]]);
+    //let ioum = IouMarker::new(vec![vec![1, 2, 3]]);
 
-    //let args = std::env::args().collect::<Vec<_>>();
-    //let f1 = &args[1];
+    let args = std::env::args().collect::<Vec<_>>();
+    let f1 = &args[1];
 
-    //let qd = if args.len() > 3 {
-    //    args[2].parse().unwrap()
-    //} else {
-    //    128
-    //};
+    let qd = if args.len() > 3 {
+        args[2].parse().unwrap()
+    } else {
+        128
+    };
 
-    //copy(f1, qd);
+    copy(f1, qd);
 }
 
 //fn main() {
